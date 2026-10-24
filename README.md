@@ -1,62 +1,86 @@
-# IT 126 – Module 3, Lesson 2: Investigating Data Persistence
+# IT 126 – Module 3, Lesson 2: Local Task Manager
 
-## Activity
+**Application:** Developing a Local Task Manager  
+**Technology:** Flutter, Dart, SQLite (`sqflite`), `path`, and a repository pattern
 
-This Flutter app demonstrates a simple student task list using a Dart `List<String>` held in the state of a `StatefulWidget`.
+## Application overview
+
+This project implements the lesson's SQLite-based task manager. It stores tasks in a local SQLite database instead of keeping them only in a Dart list. The database table is named `tasks` and has an automatically generated `id`, a required `title`, and an `is_completed` integer status (`0` = pending, `1` = completed).
 
 ### Features
-- Text field for entering a task title
-- Add Task button
-- Displays the tasks added during the current app session
-- Rejects empty or whitespace-only titles
-- Uses in-memory data only; no database or persistent storage is implemented
+- Add a task using the text field and Add button.
+- Reject empty or whitespace-only task titles.
+- Load saved tasks when the screen opens and refresh the list after successful changes.
+- Mark tasks as completed or pending.
+- Delete a task from SQLite.
+- Show loading, empty, and error states; the app does not display a success message when an operation fails.
+- Keep data-access operations in `TaskRepository`, separate from the UI.
 
-### How to run
-1. Install Flutter and set up a supported emulator or connect a device.
-2. Extract this project and open a terminal in the project folder.
+## Project structure
+
+```text
+lib/
+├── main.dart                  # Flutter UI and user interactions
+├── models/
+│   └── task.dart              # Task model and database-map conversion
+└── data/
+    └── task_repository.dart   # SQLite initialization and CRUD operations
+```
+
+## How the implementation works
+
+1. `TaskRepository` opens `student_tasks.db` in the platform's application database directory using `getDatabasesPath()` and `path.join()`.
+2. On first creation, SQLite creates the `tasks` table with `id INTEGER PRIMARY KEY AUTOINCREMENT`, `title TEXT NOT NULL`, and `is_completed INTEGER NOT NULL DEFAULT 0`.
+3. The UI calls repository methods to create, read, update, and delete records. It does not execute database queries directly.
+4. Database calls are asynchronous and awaited. After a successful change, the UI reloads the task list.
+5. Task titles are trimmed and checked before insertion. Database errors are caught and surfaced to the user.
+
+## Run the application
+
+1. Install Flutter and configure an Android/iOS emulator or connect a supported device.
+2. Open a terminal in the project folder.
 3. Run:
+
    ```bash
    flutter pub get
    flutter run
    ```
-4. Add two or more tasks and confirm that they appear in the list.
-5. Stop/terminate the application completely, then launch it again.
-6. Observe that the previously added tasks are no longer displayed.
 
-### Activity observations
-- While the app is running, the tasks appear because they are held in the `_tasks` Dart list and the widget rebuilds after `setState`.
-- After the app process ends and the app is launched again, the list starts empty because the tasks were not written to persistent storage.
-- This activity intentionally does not use SQLite, files, or another persistence mechanism.
+The app uses `sqflite`, which is intended for supported native platforms and does not run in Chrome through a normal `flutter run -d chrome` session. The project also configures `sqflite_common_ffi` for Windows and Linux desktop. For the intended mobile submission, run on Android or iOS.
 
-## Analysis
+## Reflection
 
-### 1. What happened to the task titles when you added them to the list?
-Each title was appended to the in-memory `List<String>` named `_tasks`. The app then rebuilt its interface and displayed the updated list.
+### 1. Why does the application use SQLite instead of relying only on a Dart list?
 
-### 2. Why could the application display the tasks while it was running?
-The list remained available in the running app's memory. Calling `setState` notified Flutter that the state had changed, allowing the interface to rebuild and show the newly added tasks.
+The application uses SQLite because a Dart list exists only in the running process and does not automatically preserve its records after the app is terminated. SQLite stores task records persistently in a local database file, so the tasks can be loaded again when the application is reopened. SQLite also provides structured queries and defined operations for creating, retrieving, updating, and deleting records.
 
-### 3. What happened after the application process ended and the application was relaunched?
-The previously added task titles were gone, and the list was empty after relaunch. The in-memory objects from the previous process were not preserved.
+### 2. What is the purpose of the primary key in the tasks table?
 
-### 4. Would keeping the list inside a StatefulWidget automatically make the tasks persistent? Explain your answer.
-No. A `StatefulWidget` can keep state while its relevant state object exists, including across ordinary rebuilds. It does not automatically save that state to durable storage when the application process ends.
+The `id` column is the primary key and is generated automatically for each task. It uniquely identifies each record, even when two tasks have the same title. The repository uses this ID in the `WHERE id = ?` condition when updating a task's completion status or deleting it, ensuring the operation targets the intended record.
 
-### 5. What would the application need to do to preserve the tasks between sessions?
-It would need to write the task data to persistent storage and load it again when the app starts. For structured task records, SQLite is one suitable option; files or key-value storage may suit other data needs.
+### 3. How does the repository simplify the UI's interaction with the database?
 
-### 6. If the application eventually stored hundreds or thousands of tasks, what problems might arise from managing all the data manually in memory?
-The app would still lack persistence unless it separately saved the data. Searching, filtering, updating, and deleting records could also require more manually written logic, and keeping that logic organized becomes harder as the number of records and task attributes grows. Memory use and UI performance may also become concerns depending on how the data is handled.
+`TaskRepository` centralizes database initialization and the CRUD methods (`getAll`, `create`, `setCompleted`, and `delete`). The UI calls these methods instead of opening SQLite or writing queries itself. This separation keeps the screen focused on input and presentation, avoids scattering database logic through widgets, and makes the data-access code easier to maintain and test.
 
-### 7. How could separating the operations that save and retrieve tasks from the UI make the application easier to maintain?
-A separate data-access component or repository can centralize saving, retrieving, updating, and deleting. The UI can focus on displaying tasks and handling user input, while data-access logic can be changed or tested separately. This reduces duplicated database logic across screens and makes the application easier to maintain.
+### 4. What would happen if a task were removed from the displayed list but not deleted from SQLite?
+
+The task would disappear from the current display only temporarily. Its record would remain in SQLite, so it could appear again when the app reloads the task list or is reopened. For this implementation, the delete action first removes the record through `TaskRepository.delete()` and then reloads the list after the database operation succeeds.
+
+### 5. If the database schema later needed a new column for task priority, what parts of the application might need to change?
+
+The database schema would need a versioned migration that adds a priority column to existing databases; simply changing the table-creation SQL would not update databases already created on a user's device. The `Task` model and its map conversion would need to include priority, and the repository might need to accept, save, and retrieve that value. The UI would also need controls to choose and display priority. The database version and migration logic should be updated carefully so existing tasks are preserved.
+
+## References
+
+- Flutter. (n.d.). *Persist data with SQLite*. https://docs.flutter.dev/cookbook/persistence/sqlite
+- SQLite Consortium. (n.d.). *CREATE TABLE*. https://www.sqlite.org/lang_createtable.html
+- Tekartik. (n.d.). *sqflite: Flutter plugin for SQLite*. https://pub.dev/packages/sqflite
+- Dart. (n.d.). *Asynchronous programming: Futures, async, and await*. https://dart.dev/libraries/async/async-await
 
 ## Submission checklist
-- [x] Flutter/Dart source code included
-- [x] Analysis answers included in this `README.md`
-- [ ] Run and verify the app on a Flutter-supported device/emulator
+
+- [x] Flutter/Dart source for the SQLite task manager included
+- [x] Reflection answers included in this README
+- [ ] Run and test on a supported native device/emulator
 - [ ] Push the complete project to a public GitHub repository
 - [ ] Submit only the public GitHub repository URL
-
-## Important note
-This project implements the lesson's initial **Activity** and its seven **Analysis** questions. It intentionally does not implement the later SQLite-based **Application: Developing a Local Task Manager**, because that is a separate exercise in the course material.
